@@ -105,7 +105,7 @@ static void ReadShapeAttributes(GeoCollection &gc, std::string filename){
 
       //GRAB ATTRIBUTES WITHOUT DECODING THEM INTO USABLE DATA
       const auto attrib = DBFReadStringAttribute( hDBF, iRecord, i );
-      gc.at(iRecord).props[szTitle] = attrib;
+      gc.g.at(iRecord).props[szTitle] = attrib;
     }
   }
 
@@ -118,7 +118,7 @@ static void ReadShapeAttributes(GeoCollection &gc, std::string filename){
 
 
 //TODO: Do we need to worry about layers?
-void ReadShapes(GeoCollection &mgons, std::string filename){
+void ReadShapes(GeoCollection &gc, std::string filename){
   int nShapeType;
   int nEntities;
   double adfMinBound[4];
@@ -135,8 +135,8 @@ void ReadShapes(GeoCollection &mgons, std::string filename){
 
   SHPObject *psShape;
   for(int i=0;i<nEntities;i++){
-    mgons.emplace_back();     //Add a new MultiPolygon 
-    auto &mp = mgons.back();  //Get a reference to it
+    gc.g.emplace_back();   //Add a new MultiPolygon 
+    auto &mp = gc.g.back();  //Get a reference to it
 
     psShape = SHPReadObject( hSHP, i );
     if(psShape==NULL)
@@ -146,17 +146,22 @@ void ReadShapes(GeoCollection &mgons, std::string filename){
       throw std::runtime_error("panPartStart[0] should be 0, but is not!");
 
     //Loop through all the vertices of the multipolygon
-    int ringi = 0; //Which ring we're considering
+    int ringi       = 0; //Which ring we're considering
+    Polygon::ring_type *current_ring;
     for(int j=0; j < psShape->nVertices; j++ ){
       if( ringi < psShape->nParts && psShape->panPartStart[ringi] == j ){
-        if(!IsHole(psShape,ringi))
-          mp.emplace_back();
-        mp.back().emplace_back();
+        if(!IsHole(psShape,ringi)){
+          mp.g.emplace_back();
+          current_ring = &mp.g.back().outer();
+        } else {
+          mp.g.back().inners().emplace_back();
+          current_ring = &mp.g.back().inners().back();
+        }
         ringi++;
       }
       
       //if(psShape->bMeasureIsUsed){
-      mp.back().back().emplace_back(psShape->padfX[j], psShape->padfY[j]);
+      current_ring->emplace_back(psShape->padfX[j], psShape->padfY[j]);
     }
 
     SHPDestroyObject( psShape );
@@ -177,23 +182,26 @@ void ReadShapeProj(GeoCollection &gc, std::string filename){
 }
 
 GeoCollection ReadShapefile(std::string filename){
-  GeoCollection mgons;
+  GeoCollection gc;
   
-  ReadShapes(mgons,filename);
-  ReadShapeAttributes(mgons,filename);
-  ReadShapeProj(mgons,filename);
+  ReadShapes(gc,filename);
+  ReadShapeAttributes(gc,filename);
+  ReadShapeProj(gc,filename);
 
   //TODO
-  for(auto &mp: mgons)
-  for(auto &poly: mp)
-  for(auto &ring: poly){
-    if(!(ring.front().x==ring.back().x && ring.front().y==ring.back().y))
+  for(auto &mp: gc.g)
+  for(auto &poly: mp.g){
+    if(!(poly.outer().front().x()==poly.outer().back().x() && poly.outer().front().y()==poly.outer().back().y()))
       throw std::runtime_error("Shapefile had an unclosed ring!");
+    for(auto &ring: poly.inners()){
+      if(!(ring.front().x()==ring.back().x() && ring.front().y()==ring.back().y()))
+        throw std::runtime_error("Shapefile had an unclosed ring!");
+    }
   }
 
-  mgons.correctWindingDirection();
+  //gc.correctWindingDirection();
 
-  return mgons;
+  return gc;
 }
 
 
@@ -207,22 +215,22 @@ static void WriteShapes(const GeoCollection &gc, const std::string filename){
     throw std::runtime_error("Failed to create shapefile '" + filename + "'!");
 
 
-  for(unsigned int id=0;id<gc.size();id++){
+  for(unsigned int id=0;id<gc.g.size();id++){
     std::vector<double> x;
     std::vector<double> y;
     std::vector<int> rings;
 
-    for(const auto &poly: gc.at(id)){
+    for(const auto &poly: gc.g.at(id).g){
       rings.push_back(x.size());
-      for(const auto &p: poly.at(0)){
-        x.push_back(p.x);
-        y.push_back(p.y);
+      for(const auto &p: poly.outer()){
+        x.push_back(p.x());
+        y.push_back(p.y());
       }
-      for(unsigned int r=1;r<poly.size();r++){
+      for(unsigned int r=0;r<poly.inners().size();r++){
         rings.push_back(x.size());
-        for(auto p=poly.at(r).rbegin();p!=poly.at(r).rend();p++){
-          x.push_back(p->x);
-          y.push_back(p->y);
+        for(const auto &p: poly.inners().at(r)){
+          x.push_back(p.x());
+          y.push_back(p.y());
         }
       }
     }
@@ -282,7 +290,7 @@ void WriteShapeAttributes(const GeoCollection &gc, const std::string filename){
 
   std::map<std::string, PropType> proptypes;
 
-  for(const auto &poly: gc)
+  for(const auto &poly: gc.g)
   for(const auto &prop: poly.props){
     if(!proptypes.count(prop.first)){
       auto &ptv = proptypes[prop.first];
@@ -307,8 +315,8 @@ void WriteShapeAttributes(const GeoCollection &gc, const std::string filename){
       throw std::runtime_error("Failed to add field '"+p.first+"' to shapefile dbf!");
   }
 
-  for(unsigned int id=0;id<gc.size();id++){
-    for(const auto &prop: gc.at(id).props){
+  for(unsigned int id=0;id<gc.g.size();id++){
+    for(const auto &prop: gc.g.at(id).props){
       const auto &atv = proptypes[prop.first];
       switch(atv.type){
         case FTDouble:  DBFWriteDoubleAttribute (hDBF, id, atv.field_id, std::stod(prop.second)); break;
@@ -329,7 +337,7 @@ void WriteShapeScores(const GeoCollection &gc, const std::string filename){
     throw std::runtime_error("Failed to create shapefile database '" + filename + "'!");
 
   std::set<std::string> scoreset; //Gather all scores
-  for(const auto &poly: gc)
+  for(const auto &poly: gc.g)
   for(const auto &score: poly.scores)
     scoreset.insert(score.first);
 
@@ -342,11 +350,11 @@ void WriteShapeScores(const GeoCollection &gc, const std::string filename){
     scorefields.emplace_back(s, ret);
   }
 
-  for(unsigned int id=0;id<gc.size();id++){
+  for(unsigned int id=0;id<gc.g.size();id++){
     for(unsigned int s=0;s<scorefields.size();s++){
       const auto &sf = scorefields.at(s);
-      if(gc.at(id).scores.count(sf.first))
-        DBFWriteDoubleAttribute(hDBF, id, sf.second, gc.at(id).scores.at(sf.first));
+      if(gc.g.at(id).scores.count(sf.first))
+        DBFWriteDoubleAttribute(hDBF, id, sf.second, gc.g.at(id).scores.at(sf.first));
       else
         DBFWriteNULLAttribute(hDBF, id, sf.second);
     }

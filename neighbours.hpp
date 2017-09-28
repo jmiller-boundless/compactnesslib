@@ -4,9 +4,8 @@
 #include "geom.hpp"
 
 namespace complib {
-  void FindNeighbouringDistricts(GeoCollection &gc);
-  void FindExteriorDistricts(GeoCollection &subunits, const GeoCollection &superunits);
-  void CalcParentOverlap(GeoCollection &subunits, GeoCollection &superunits);
+  void FindNeighbouringDistricts(GeoCollection &gc, const double eps);
+  void FindParents(GeoCollection &subunits, const GeoCollection &superunits, const double eps, const double cutoff);
 }
 
 #endif

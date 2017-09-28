@@ -19,8 +19,8 @@ std::map<std::string, GeoCollection> prepped_geojson;
 //template<typename T> struct TD;
 //e.g. TD<decltype(WHAT_AM_I_VAR_NAME)> td;
 
-Ring ParseRing(const json &r){
-  Ring temp;
+Polygon::ring_type ParseRing(const json &r){
+  Polygon::ring_type temp;
   for(const auto &c: r)
     temp.emplace_back(c[0],c[1]);
   return temp;
@@ -33,12 +33,17 @@ Ring ParseRing(const json &r){
 //std::string s = sb.GetString();
 
 Polygon ParsePolygon(const json &coor){
-  Polygon mp;
+  Polygon poly;
   //First ring is the outer ring, all the others are holes
-  for(const auto &r: coor)
-    mp.push_back(ParseRing(r));
+  for(unsigned int i=0;i<coor.size();i++){
+    auto ring = ParseRing(coor[i]);
+    if(i==0)
+      poly.outer() = ring;
+    else
+      poly.inners().push_back(ring);
+  }
 
-  return mp;
+  return poly;
 }
 
 const json& GetToCoordinates(const json &d){
@@ -52,17 +57,17 @@ const json& GetToCoordinates(const json &d){
 }
 
 MultiPolygon ParseTopPolygon(const json &d){
-  MultiPolygon mps;
-  mps.push_back(ParsePolygon(GetToCoordinates(d)));
-  return mps;
+  MultiPolygon mp;
+  mp.g.push_back(ParsePolygon(GetToCoordinates(d)));
+  return mp;
 }
 
 MultiPolygon ParseMultiPolygon(const json &d){
-  MultiPolygon mps;
+  MultiPolygon mp;
   for(const auto &poly: GetToCoordinates(d))
-    mps.emplace_back(ParsePolygon(poly));
+    mp.g.emplace_back(ParsePolygon(poly));
 
-  return mps;
+  return mp;
 }
 
 MultiPolygon ParseFeature(const json &d){
@@ -92,7 +97,7 @@ GeoCollection ReadGeoJSON(const std::string geojson){
   if(geojson.compare(0,2,"__")==0)
     return prepped_geojson.at(geojson);
 
-  GeoCollection mps;
+  GeoCollection gc;
   auto d = json::parse(geojson);
 
   if(!d.is_object())
@@ -104,19 +109,19 @@ GeoCollection ReadGeoJSON(const std::string geojson){
     throw std::runtime_error("Type not a string!");
 
   if(d["type"]=="MultiPolygon"){
-    mps.push_back(ParseMultiPolygon(d));
+    gc.g.push_back(ParseMultiPolygon(d));
   } else if(d["type"]=="Polygon"){
-    mps.push_back(ParseTopPolygon(d));
+    gc.g.push_back(ParseTopPolygon(d));
   } else if(d["type"]=="FeatureCollection"){
     for(const auto &f: d["features"])
-      mps.push_back(ParseFeature(f));
+      gc.g.push_back(ParseFeature(f));
   } else {
     throw std::runtime_error("Not a FeatureCollection or MultiPolygon or Polygon!");
   }
 
-  mps.correctWindingDirection();
+//  gc.correctWindingDirection();
 
-  return mps;
+  return gc;
 }
 
 GeoCollection ReadGeoJSONFile(std::string filename){
@@ -133,23 +138,23 @@ std::string OutScoreJSON(const GeoCollection &gc, const std::string id){
   const bool use_id = !id.empty();
 
   oss<<"{\n";
-  for(unsigned int i=0;i<gc.size();i++){
+  for(unsigned int i=0;i<gc.g.size();i++){
     oss<<"\t\"";
     if(use_id)
-      oss<<gc[i].props.at(id);
+      oss<<gc.g.at(i).props.at(id);
     else
       oss<<i;
     oss<<"\":{\n";
 
     unsigned int inserted = 0;
-    for(const auto &kv: gc[i].scores){
+    for(const auto &kv: gc.g.at(i).scores){
       oss<<"\t\t\""<<kv.first<<"\":"<<std::fixed<<std::setprecision(5)<<kv.second;
-      if(inserted++<gc[i].scores.size()-1)
+      if(inserted++<gc.g.at(i).scores.size()-1)
         oss<<",\n";
     }
 
     oss<<"\n\t}";
-    if(i<gc.size()-1)
+    if(i<gc.g.size()-1)
       oss<<",\n";
   }
   oss<<"\n}";

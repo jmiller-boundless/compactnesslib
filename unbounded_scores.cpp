@@ -28,7 +28,7 @@ double ScoreConvexHullPS(const MultiPolygon &mp){
 
 double ScoreConvexHullPT(const MultiPolygon &mp){
   const double area_mp   = areaIncludingHoles(mp);
-  const double hull_area = area(mp.getHull());
+  const double hull_area = boost::geometry::area(GeomConvexHull(mp.g));
   return area_mp/hull_area;
 }
 
@@ -44,7 +44,7 @@ double ScoreReockPT(const MultiPolygon &mp){
 double ScoreReockPS(const MultiPolygon &mp){
   const double area = areaIncludingHoles(mp);
   double circ_area  = 0;
-  for(const auto &poly: mp)
+  for(const auto &poly: mp.g)
     circ_area += M_PI*std::pow(diameterOuter(poly)/2.0,2.0);
 
   return area/circ_area;
@@ -60,10 +60,10 @@ void CalculateListOfUnboundedScores(GeoCollection &gc, std::vector<std::string> 
   else if(score_list.size()==1 && score_list.at(0)=="all")
     score_list = getListOfUnboundedScores();
 
-  for(unsigned int i=0;i<gc.size();i++){
+  for(auto &mp: gc.g){
     for(const auto &sn: score_list){
       if(unbounded_score_map.count(sn))
-        gc[i].scores[sn] = unbounded_score_map.at(sn)(gc[i]);
+        mp.scores[sn] = unbounded_score_map.at(sn)(mp);
     }
   }
 }
@@ -80,8 +80,8 @@ const std::vector<std::string>& getListOfUnboundedScores(){
 const unbounded_score_map_t unbounded_score_map({
   {"areaAH",     [](const MultiPolygon &mp) { return areaIncludingHoles(mp);  }},
   {"perimSH",    [](const MultiPolygon &mp) { return perimExcludingHoles(mp); }},
-  {"HoleCount",  [](const MultiPolygon &mp) { return holeCount(mp); }},
-  {"PolyCount",  [](const MultiPolygon &mp) { return polyCount(mp); }},
+  {"HoleCount",  [](const MultiPolygon &mp) { return holeCount(mp.g); }},
+  {"PolyCount",  [](const MultiPolygon &mp) { return polyCount(mp.g); }},
   {"PolsbyPopp", ScorePolsbyPopper},
   {"Schwartzbe", ScoreSchwartzberg},
   {"CvxHullPS",  ScoreConvexHullPS},

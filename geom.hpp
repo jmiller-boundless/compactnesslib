@@ -7,104 +7,55 @@
 #include <string>
 #include <limits>
 #include "Props.hpp"
-#include "lib/clipper.hpp"
-#include "lib/iterator_tpl.h"
+
+#include <boost/geometry.hpp>
+#include <boost/geometry/geometries/point_xy.hpp>
+#include <boost/geometry/geometries/polygon.hpp>
 
 namespace complib {
 
-namespace cl = ClipperLib;
-
-class Point2D;
-class Polygon;
-class Ring;
-class MultiPolygon;
-class Geometry;
-
-typedef std::vector<Point2D>      Points;
-typedef std::vector<Polygon>      Polygons;
-typedef std::vector<Ring>         Rings;
-typedef std::vector<MultiPolygon> MultiPolygons;
+namespace bg = boost::geometry;
 
 void PrintProps(const Props &ps);
 
-class BoundingBox {
- private:
-  static constexpr double infty = std::numeric_limits<double>::infinity();
- public:
-  double min[2] = {infty,infty};
-  double max[2] = {-infty,-infty};
-  BoundingBox() = default;
-  BoundingBox(double minx, double miny, double maxx, double maxy);
-  double& minx();
-  double& miny();
-  double& maxx();
-  double& maxy();
-  double minx() const;
-  double miny() const;
-  double maxx() const;
-  double maxy() const;
-};
+typedef boost::geometry::model::d2::point_xy<int> Point2D;
+typedef boost::geometry::model::d2::point_xy<int> SimplePoint2D;
+typedef boost::geometry::model::polygon<Point2D> Polygon;
+typedef boost::geometry::model::polygon<SimplePoint2D> SimplePolygon;
+typedef boost::geometry::model::multi_polygon<Polygon> SimpleMultiPolygon;
+typedef boost::geometry::model::box<Point2D> Box;
 
-class Point2D {
- public:
-  double x;
-  double y;
-  Point2D() = default;
-  Point2D(double x0, double y0);
-};
-
-class Ring {
- public:
-  Points v;
-  Ring() = default;
-  Ring(const std::vector<Point2D> &ptvec);
-  mutable std::vector<Point2D> hull;
-  Ring getHull() const;
-  mutable ClipperLib::Path clipper_paths;
-  EXPOSE_STL_VECTOR(v);
-};
-
-class Polygon {
- public:
-  Rings v;
-  EXPOSE_STL_VECTOR(v);
-};
+//TODO
+// boost::geometry::envelope(polygon, box);
 
 class MultiPolygon {
  public:
-  Polygons v;
+  SimpleMultiPolygon g;
   Props props;
   Scores scores;
-  mutable Ring hull;
-  const Ring& getHull() const;
   void toRadians();
   void toDegrees();
   MultiPolygon intersect(const MultiPolygon &b) const;
-  mutable ClipperLib::Paths clipper_paths;
   void reverse();
-  BoundingBox bbox() const;
-  EXPOSE_STL_VECTOR(v);
 
   std::set<unsigned int> neighbours;
   std::vector<std::pair<unsigned int, double> > parents;
 };
 
+typedef std::vector<MultiPolygon> MultiPolygons;
+
 class GeoCollection {
  public:
-  MultiPolygons v;
+  MultiPolygons g;
   std::string prj_str;
   void reverse();
   void correctWindingDirection();
-  EXPOSE_STL_VECTOR(v);
 };
 
 
 
-double EuclideanDistance(const Point2D &a, const Point2D &b);
+//double EuclideanDistance(const Point2D &a, const Point2D &b);
 
-
-
-double area(const Ring &r);
 double areaIncludingHoles(const Polygon &p);
 double areaIncludingHoles(const MultiPolygon &mp);
 double areaExcludingHoles(const MultiPolygon &mp);
@@ -112,7 +63,6 @@ double areaExcludingHoles(const MultiPolygon &mp);
 double areaHoles(const Polygon &p);
 double areaHoles(const MultiPolygon &mp);
 
-double perim(const Ring &r);
 double perimExcludingHoles(const Polygon &p);
 double perimExcludingHoles(const MultiPolygon &mp);
 double perimIncludingHoles(const Polygon &p);
@@ -121,56 +71,45 @@ double perimIncludingHoles(const MultiPolygon &mp);
 double perimHoles(const Polygon &p);
 double perimHoles(const MultiPolygon &mp);
 
-double hullArea(const Ring &r);
 double hullAreaOfOuter(const Polygon &p);
 double hullAreaPolygonOuterRings(const MultiPolygon &mp);
 
 double hullAreaOfHoles(const Polygon &p);
 double hullAreaOfHoles(const MultiPolygon &mp);
 
-double diameter(const Ring &r);
+//double diameter(const Ring &r);
 double diameterOuter(const Polygon &p);
 double diameterOfEntireMultiPolygon(const MultiPolygon &mp);
 
-unsigned holeCount(const Polygon &p);
-unsigned polyCount(const MultiPolygon &mp);
-unsigned holeCount(const MultiPolygon &mp);
 
 
-const cl::Path& ConvertToClipper(const Ring &ring, const bool reversed);
-const cl::Paths& ConvertToClipper(const MultiPolygon &mp, const bool reversed);
-
-template<class T, class U>
-double IntersectionArea(const T &a, const U &b) {
-  const auto paths_a = ConvertToClipper(a,false);
-  const auto paths_b = ConvertToClipper(b,false);
-
-  cl::Clipper clpr;
-  clpr.AddPaths(paths_a, cl::ptSubject, true);
-  clpr.AddPaths(paths_b, cl::ptClip, true);
-  cl::Paths solution;
-  clpr.Execute(cl::ctIntersection, solution, cl::pftEvenOdd, cl::pftEvenOdd);
-
-  double area = 0;
-  for(const auto &path: solution)
-    area += cl::Area(path);
-  return area;
+template<class T>
+unsigned holeCount(const T &geom){
+  return bg::num_interior_rings(geom);
 }
 
+template<class T>
+unsigned polyCount(const T &geom){
+  return bg::num_geometries(geom);
+}
 
 
 template<class T>
 std::pair<Point2D, Point2D> MostDistantPoints(const T &geom){
   //We'll use the Convex Hull to find the two most distant points
-  const auto &hull = geom.getHull();
+
+  SimplePolygon hullpoly;
+  boost::geometry::convex_hull(geom, hullpoly);
 
   std::pair<unsigned int, unsigned int> idx_maxpts;
   double maxdist = 0;
 
+  const auto hull = hullpoly.outer();
+
   //TODO: There's a faster way to do this  
   for(unsigned int i=0;i<hull.size();i++)
   for(unsigned int j=i+1;j<hull.size();j++){
-    const double dist = EuclideanDistance(hull.at(i),hull.at(j));
+    const double dist = boost::geometry::distance(hull.at(i),hull.at(j));
     if(dist>maxdist){
       idx_maxpts = std::make_pair(i,j);
       maxdist    = dist;
@@ -180,8 +119,139 @@ std::pair<Point2D, Point2D> MostDistantPoints(const T &geom){
   return std::make_pair(hull.at(idx_maxpts.first), hull.at(idx_maxpts.second));
 }
 
-MultiPolygon GetBoundingCircle(const MultiPolygon &mp);
-MultiPolygon GetBoundingCircleMostDistant(const MultiPolygon &mp);
+template<class T, class U>
+double IntersectionArea(const T &a, const U &b){
+  SimpleMultiPolygon output;
+  boost::geometry::intersection(a, b, output);
+
+  return boost::geometry::area(output);
+}
+
+template<class T>
+SimplePolygon GeomConvexHull(const T &geom){
+  SimplePolygon hullpoly;
+  boost::geometry::convex_hull(geom, hullpoly);
+  return hullpoly;
+}
+
+
+
+/*
+template<class T>
+MultiPolygon GetBoundingCircle(const T &geom){
+  //Number of unique points from which to construct the circle. The circle will
+  //have one more point of than this in order to form a closed ring).
+  const int CIRCLE_PT_COUNT = 1000;
+
+
+
+
+  std::vector< std::vector<double> > pts;
+  for(const auto &poly: mp)
+  for(const auto &ring: poly)
+  for(const auto &pt: ring)
+    pts.push_back(std::vector<double>({{pt.x,pt.y}}));
+
+  // define the types of iterators through the points and their coordinates
+  // ----------------------------------------------------------------------
+  typedef std::vector<std::vector<double> >::const_iterator PointIterator; 
+  typedef std::vector<double>::const_iterator CoordIterator;
+
+  // create an instance of Miniball
+  // ------------------------------
+  typedef Miniball::
+    Miniball <Miniball::CoordAccessor<PointIterator, CoordIterator> > 
+    MB;
+
+  MB mb (2, pts.begin(), pts.end());
+  
+  const Point2D midpt(mb.center()[0], mb.center()[1]);
+  const double radius = std::sqrt(mb.squared_radius());
+  //"Computation time was "<< mb.get_time() << " seconds\n";
+
+  MultiPolygon circle;
+  circle.emplace_back();             //Make a polygon
+  circle.back().emplace_back();      //Make a ring
+  auto &ring = circle.back().back(); //Get the ring
+
+  //Make a "circle"
+  for(int i=0;i<CIRCLE_PT_COUNT;i++)
+    ring.emplace_back(
+      midpt.x+radius*std::cos(-2*M_PI*i/(double)CIRCLE_PT_COUNT),
+      midpt.y+radius*std::sin(-2*M_PI*i/(double)CIRCLE_PT_COUNT)
+    );
+  //Close the "circle"
+  ring.push_back(ring.front());
+
+  return circle;
+}*/
+
+
+
+template<class T>
+SimpleMultiPolygon GetBoundingCircleMostDistant(const T &geom){
+  //Number of unique points from which to construct the circle. The circle will
+  //have one more point of than this in order to form a closed ring).
+  const int CIRCLE_PT_COUNT = 1000;
+
+  const auto dist_pts = MostDistantPoints(geom);
+
+  const Point2D &mpa = dist_pts.first;
+  const Point2D &mpb = dist_pts.second;
+
+  const Point2D midpt( 
+    (bg::get<0>(mpa)+bg::get<0>(mpb))/2. ,
+    (bg::get<1>(mpa)+bg::get<1>(mpb))/2. );
+  const auto radius = boost::geometry::distance(mpa,mpb)/2.;
+
+  SimpleMultiPolygon circle;
+
+  //Make a "circle"
+  for(int i=0;i<CIRCLE_PT_COUNT;i++)
+    boost::geometry::append(circle, 
+      Point2D(
+        bg::get<0>(midpt)+radius*std::cos(-2*M_PI*i/(double)CIRCLE_PT_COUNT),
+        bg::get<1>(midpt)+radius*std::sin(-2*M_PI*i/(double)CIRCLE_PT_COUNT)
+      )
+    );
+  //Close the "circle"
+  boost::geometry::append(circle, 
+    Point2D(
+      bg::get<0>(midpt)+radius*std::cos(0),
+      bg::get<1>(midpt)+radius*std::sin(0)
+    )
+  );
+
+  return circle;
+}
+
+
+template<class T>
+SimpleMultiPolygon Buffer(const T &geom, const double pad_amount){
+  const int points_per_circle = 36;
+  boost::geometry::strategy::buffer::distance_symmetric<double> distance_strategy(pad_amount);
+  static const boost::geometry::strategy::buffer::join_round    join_strategy  (points_per_circle);
+  static const boost::geometry::strategy::buffer::end_round     end_strategy   (points_per_circle);
+  static const boost::geometry::strategy::buffer::point_circle  circle_strategy(points_per_circle);
+  static const boost::geometry::strategy::buffer::side_straight side_strategy;
+
+  SimpleMultiPolygon buffered;
+  boost::geometry::buffer(geom,buffered,distance_strategy,side_strategy,join_strategy,end_strategy,circle_strategy);
+
+  return buffered;
+}
+
+
+template<class T>
+SimpleMultiPolygon GetRingFromGeom(const T &geom, const double pad_amount){
+  const auto grown  = Buffer(geom,  pad_amount);
+  const auto shrunk = Buffer(geom, -pad_amount);
+
+  SimpleMultiPolygon ring;
+  boost::geometry::difference(grown, shrunk, ring);
+
+  return ring;
+}
 
 }
 

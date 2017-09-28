@@ -7,61 +7,73 @@
 
 namespace complib {
 
-template<class CoordinateType, class ValueType>
+template<class ValueType>
 class SpIndex {
+ public:
+  typedef std::pair<Box, ValueType> value;
+
  private:
-  typedef boost::geometry::model::point<CoordinateType, 2, boost::geometry::cs::cartesian> point;
-  typedef boost::geometry::model::box<point> box;
-  typedef std::pair<box, ValueType> value;
   typedef boost::geometry::index::rtree< value, boost::geometry::index::rstar<16> > rtree_t;
   std::vector<value> boxes_to_insert;
-  rtree_t rtree;
 
  public:
-  void addBox(const CoordinateType xmin, const CoordinateType ymin, const CoordinateType xmax, const CoordinateType ymax, const ValueType id);
-  void addBoxDeferred(const CoordinateType xmin, const CoordinateType ymin, const CoordinateType xmax, const CoordinateType ymax, const ValueType id);
+  rtree_t rtree;
+
+  void add(const Box &bb, const ValueType id);
+  void addDeferred(const Box &bb, const ValueType id);
+  template<class T> void addDeferred(const T &geom, const int id);
   std::vector<ValueType> query(const Point2D &xy) const;
-  std::vector<ValueType> query(const MultiPolygon &bb) const;
+  template<class T> std::vector<ValueType> query(const T &bb) const;
+  std::vector<ValueType> query(const Box &bb) const;
   void buildIndex();
 };
 
-template<class CoordinateType, class ValueType>
-void SpIndex<CoordinateType, ValueType>::addBox(
-  const CoordinateType xmin, 
-  const CoordinateType ymin, 
-  const CoordinateType xmax, 
-  const CoordinateType ymax, 
+template<class ValueType>
+void SpIndex<ValueType>::add(
+  const Box &bb,
   const ValueType id
 ){
-  box b(point(xmin,ymin),point(xmax,ymax));
-  rtree.insert(std::make_pair(b, id));
+  rtree.insert(std::make_pair(bb, id));
 }
 
-template<class CoordinateType, class ValueType>
-void SpIndex<CoordinateType, ValueType>::addBoxDeferred(
-  const CoordinateType xmin, 
-  const CoordinateType ymin, 
-  const CoordinateType xmax, 
-  const CoordinateType ymax, 
+template<class ValueType>
+void SpIndex<ValueType>::addDeferred(
+  const Box &bb, 
   const ValueType id
 ){
-  box b(point(xmin,ymin),point(xmax,ymax));
-  boxes_to_insert.push_back(std::make_pair(b, id));
+  boxes_to_insert.push_back(std::make_pair(bb, id));
 }
 
-template<class CoordinateType, class ValueType>
-void SpIndex<CoordinateType, ValueType>::buildIndex(){
+
+template<class ValueType>
+template<class T>
+void SpIndex<ValueType>::addDeferred(const T &geom, const int id){
+  Box bb;
+  boost::geometry::envelope(geom, bb);
+  addDeferred(bb, id);
+}
+
+
+template<class ValueType>
+void SpIndex<ValueType>::buildIndex(){
   rtree = rtree_t(boxes_to_insert);
   boxes_to_insert.clear();
   boxes_to_insert.shrink_to_fit();
 }
 
-template<class CoordinateType, class ValueType>
-std::vector<ValueType> SpIndex<CoordinateType, ValueType>::query(const Point2D &xy) const {
-  box query_box(point(xy.x, xy.y), point(xy.x, xy.y));
+template<class ValueType>
+template<class T>
+std::vector<ValueType> SpIndex<ValueType>::query(const T &geom) const {
+  Box query_box;
+  boost::geometry::envelope(geom, query_box);
+  return query(query_box);
+}
+
+template<class ValueType>
+std::vector<ValueType> SpIndex<ValueType>::query(const Box &qbo) const {
   std::vector<value> result_s;
   rtree.query(
-    boost::geometry::index::intersects(query_box),
+    boost::geometry::index::intersects(qbo),
     std::back_inserter(result_s)
   );
 
@@ -70,30 +82,6 @@ std::vector<ValueType> SpIndex<CoordinateType, ValueType>::query(const Point2D &
     ret.emplace_back(x.second);
 
   return ret;
-}
-
-template<class CoordinateType, class ValueType>
-std::vector<ValueType> SpIndex<CoordinateType, ValueType>::query(const MultiPolygon &mp) const {
-  const auto bb = mp.bbox();
-  box query_box(point(bb.minx(), bb.miny()), point(bb.maxx(), bb.maxy()));
-  std::vector<value> result_s;
-  rtree.query(
-    boost::geometry::index::intersects(query_box),
-    std::back_inserter(result_s)
-  );
-
-  std::vector<ValueType> ret;
-  for(const auto &x: result_s)
-    ret.emplace_back(x.second);
-
-  return ret;
-}
-
-
-template<class CoordinateType, class ValueType>
-void AddToSpIndex(const MultiPolygon &mp, SpIndex<CoordinateType, ValueType> &sp, const int id){
-  const auto bb = mp.bbox();
-  sp.addBoxDeferred(bb.minx(), bb.miny(), bb.maxx(), bb.maxy(), id);
 }
 
 }

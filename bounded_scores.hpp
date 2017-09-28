@@ -1,7 +1,6 @@
 #ifndef _bounded_scores_hpp_
 #define _bounded_scores_hpp_
 
-#include "geojson.hpp"
 #include "geom.hpp"
 #include <string>
 #include <vector>
@@ -11,7 +10,7 @@
 namespace complib {
   const std::vector<std::string>& getListOfBoundedScores();
 
-  double ScoreConvexHullPTB        (const MultiPolygon &mp, const MultiPolygon &border);
+  double ScoreConvexHullPTB(const MultiPolygon &mp, const MultiPolygon &border);
 
   void CalculateAllBoundedScores(
     GeoCollection &subunits,

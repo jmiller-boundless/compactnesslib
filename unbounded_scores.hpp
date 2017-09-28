@@ -1,7 +1,6 @@
 #ifndef _unbounded_scores_hpp_
 #define _unbounded_scores_hpp_
 
-#include "geojson.hpp"
 #include "geom.hpp"
 #include <string>
 #include <vector>
