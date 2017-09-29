@@ -111,7 +111,6 @@ double perimIncludingHoles(const Polygon &p){
   );
 }
 
-
 double perimExcludingHoles(const MultiPolygon &mp){
   return std::accumulate(
     mp.g.begin(),

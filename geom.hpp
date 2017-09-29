@@ -39,7 +39,9 @@ class MultiPolygon {
   void reverse();
 
   std::set<unsigned int> neighbours;
-  std::vector<std::pair<unsigned int, double> > parents;
+  typedef std::pair<unsigned int, double> parent_t;
+  std::vector<parent_t> parents;
+  std::vector<parent_t> children;
 };
 
 typedef std::vector<MultiPolygon> MultiPolygons;
@@ -92,6 +94,7 @@ template<class T>
 unsigned polyCount(const T &geom){
   return bg::num_geometries(geom);
 }
+
 
 
 template<class T>
