@@ -234,8 +234,10 @@ SimpleMultiPolygon Buffer(const T &geom, const double pad_amount){
   const int points_per_circle = 36;
   boost::geometry::strategy::buffer::distance_symmetric<double> distance_strategy(pad_amount);
   static const boost::geometry::strategy::buffer::join_round    join_strategy  (points_per_circle);
-  static const boost::geometry::strategy::buffer::end_round     end_strategy   (points_per_circle);
-  static const boost::geometry::strategy::buffer::point_circle  circle_strategy(points_per_circle);
+  //static const boost::geometry::strategy::buffer::end_round     end_strategy   (points_per_circle);
+  static const boost::geometry::strategy::buffer::end_flat      end_strategy;
+  //static const boost::geometry::strategy::buffer::point_circle  circle_strategy(points_per_circle);
+  static const boost::geometry::strategy::buffer::point_square  circle_strategy;
   static const boost::geometry::strategy::buffer::side_straight side_strategy;
 
   SimpleMultiPolygon buffered;
